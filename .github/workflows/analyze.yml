@@ -54,10 +54,9 @@ jobs:
             cp apktool-out/AndroidManifest.xml analysis/
             grep -o 'package="[^"]*"' apktool-out/AndroidManifest.xml > analysis/package.txt || true
           fi
-          # DEX strings
-          python skills-apk-reverse/scripts/dex_strings.py target.apk > analysis/dex-strings.txt 2>&1 || echo "dex_strings failed" > analysis/dex-strings.txt
-          # Leak scan (API keys, URLs, secrets)
-          python skills-apk-reverse/scripts/scan_leaks.py target.apk > analysis/leak-scan.txt 2>&1 || echo "scan_leaks failed" > analysis/leak-scan.txt
+          # DEX strings (URLs + interesting strings)
+          python skills-apk-reverse/scripts/dex_strings.py target.apk --urls > analysis/dex-urls.txt 2>&1 || echo "dex_strings urls failed" > analysis/dex-urls.txt
+          python skills-apk-reverse/scripts/dex_strings.py target.apk --strings --min 8 > analysis/dex-strings.txt 2>&1 || echo "dex_strings failed" > analysis/dex-strings.txt
           # Native libs
           unzip -l target.apk | grep '\.so$' > analysis/native-libs.txt || echo "no .so files" > analysis/native-libs.txt
           ls -lh analysis/
