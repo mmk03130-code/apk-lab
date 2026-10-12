@@ -1,0 +1,70 @@
+name: APK Analysis
+
+on:
+  workflow_dispatch:
+    inputs:
+      apk_url:
+        description: 'Direct download URL of the APK to analyze'
+        required: true
+      target_name:
+        description: 'Short name for this target (used in report filenames)'
+        required: true
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install tools
+        run: |
+          pip install capstone
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq apktool > /dev/null 2>&1 || true
+          echo "$ANDROID_HOME/build-tools/34.0.0" >> $GITHUB_PATH
+
+      - name: Download APK
+        run: |
+          curl -sL "${{ inputs.apk_url }}" -o target.apk
+          ls -lh target.apk
+          file target.apk
+
+      - name: Environment check
+        run: python skills-apk-reverse/scripts/doctor.py 2>&1 | head -30 || true
+
+      - name: Static recon
+        run: |
+          mkdir -p analysis
+          # APK structure
+          unzip -l target.apk > analysis/file-list.txt 2>&1 || true
+          # Manifest
+          apktool d target.apk -o apktool-out -f > /dev/null 2>&1 || true
+          if [ -f apktool-out/AndroidManifest.xml ]; then
+            cp apktool-out/AndroidManifest.xml analysis/
+            grep -o 'package="[^"]*"' apktool-out/AndroidManifest.xml > analysis/package.txt || true
+          fi
+          # DEX strings
+          python skills-apk-reverse/scripts/dex_strings.py target.apk > analysis/dex-strings.txt 2>&1 || echo "dex_strings failed" > analysis/dex-strings.txt
+          # Leak scan (API keys, URLs, secrets)
+          python skills-apk-reverse/scripts/scan_leaks.py target.apk > analysis/leak-scan.txt 2>&1 || echo "scan_leaks failed" > analysis/leak-scan.txt
+          # Native libs
+          unzip -l target.apk | grep '\.so$' > analysis/native-libs.txt || echo "no .so files" > analysis/native-libs.txt
+          ls -lh analysis/
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: analysis-${{ inputs.target_name }}
+          path: analysis/
+          retention-days: 30
